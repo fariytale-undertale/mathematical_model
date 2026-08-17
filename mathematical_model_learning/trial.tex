@@ -1,0 +1,103 @@
+\documentclass[tikz,border=10pt]{standalone}
+\usepackage{tikz}
+\usepackage{tikz-3dplot}
+\usepackage{amsmath}
+
+\begin{document}
+\tdplotsetmaincoords{70}{120}
+
+\begin{tikzpicture}[tdplot_main_coords,scale=1.2,line join=round,line cap=round]
+
+% ========== 坐标轴 ==========
+\draw[->,thick] (0,0,0) -- (5,0,0) node[below]{$x$};
+\draw[->,thick] (0,0,0) -- (0,4,0) node[right]{$y$};
+\draw[->,thick] (0,0,0) -- (0,0,4) node[above]{$z$};
+
+% x轴上的紫色小球
+\shade[ball color=purple!60] (4.2,0,0) circle (0.15);
+
+% ========== 圆柱体 ==========
+% 参数
+\def\cx{0.8}
+\def\cy{0.5}
+\def\r{1.0}
+\def\zbot{0}
+\def\ztop{2.5}
+
+% 底部圆（用 plot 直接画，不用 foreach）
+\draw[green!30!black,thick,fill=green!10,opacity=0.3] 
+    plot[variable=\t,domain=0:360,samples=60] ({\cx+\r*cos(\t)},{\cy+\r*sin(\t)},\zbot);
+
+% 顶部圆
+\draw[green!30!black,thick,fill=green!10,opacity=0.3] 
+    plot[variable=\t,domain=0:360,samples=60] ({\cx+\r*cos(\t)},{\cy+\r*sin(\t)},\ztop);
+
+% 圆柱侧面（只画6条竖线，避免 foreach 嵌套问题）
+\draw[green!30!black,thin,opacity=0.5] ({\cx+\r},{\cy},\zbot) -- ({\cx+\r},{\cy},\ztop);
+\draw[green!30!black,thin,opacity=0.5] ({\cx+\r*cos(60)},{\cy+\r*sin(60)},\zbot) -- ({\cx+\r*cos(60)},{\cy+\r*sin(60)},\ztop);
+\draw[green!30!black,thin,opacity=0.5] ({\cx+\r*cos(120)},{\cy+\r*sin(120)},\zbot) -- ({\cx+\r*cos(120)},{\cy+\r*sin(120)},\ztop);
+\draw[green!30!black,thin,opacity=0.5] ({\cx-\r},{\cy},\zbot) -- ({\cx-\r},{\cy},\ztop);
+\draw[green!30!black,thin,opacity=0.5] ({\cx+\r*cos(240)},{\cy+\r*sin(240)},\zbot) -- ({\cx+\r*cos(240)},{\cy+\r*sin(240)},\ztop);
+\draw[green!30!black,thin,opacity=0.5] ({\cx+\r*cos(300)},{\cy+\r*sin(300)},\zbot) -- ({\cx+\r*cos(300)},{\cy+\r*sin(300)},\ztop);
+
+% ========== 关键点 ==========
+\coordinate (A) at (0.8,1.5,2.5);
+\coordinate (B) at (1.1,0.7,2.5);
+\coordinate (C) at (1.1,-0.4,0);
+\coordinate (E) at (0.6,0.4,1.0);
+\coordinate (P) at (0.9,0.3,0);
+\coordinate (D11) at (4.5,3.0,3.5);
+\coordinate (S) at (3.0,2.2,2.8);
+
+% ========== 球体 ==========
+\shade[ball color=red!40,opacity=0.6] (S) circle (0.7);
+
+% 球体经纬线（直接用 plot，不用 foreach 嵌套）
+\draw[black!50,dashed,thin] plot[variable=\t,domain=0:360,samples=40] ({3.0+0.7*cos(\t)*sin(30)},{2.2+0.7*sin(\t)*sin(30)},{2.8+0.7*cos(30)});
+\draw[black!50,dashed,thin] plot[variable=\t,domain=0:360,samples=40] ({3.0+0.7*cos(\t)*sin(60)},{2.2+0.7*sin(\t)*sin(60)},{2.8+0.7*cos(60)});
+\draw[black!50,dashed,thin] plot[variable=\t,domain=0:360,samples=40] ({3.0+0.7*cos(\t)*sin(90)},{2.2+0.7*sin(\t)*sin(90)},{2.8+0.7*cos(90)});
+\draw[black!50,dashed,thin] plot[variable=\t,domain=0:360,samples=40] ({3.0+0.7*cos(\t)*sin(120)},{2.2+0.7*sin(\t)*sin(120)},{2.8+0.7*cos(120)});
+\draw[black!50,dashed,thin] plot[variable=\t,domain=0:360,samples=40] ({3.0+0.7*cos(\t)*sin(150)},{2.2+0.7*sin(\t)*sin(150)},{2.8+0.7*cos(150)});
+
+% 经线
+\draw[black!50,dashed,thin] plot[variable=\t,domain=0:180,samples=40] ({3.0+0.7*cos(0)*sin(\t)},{2.2+0.7*sin(0)*sin(\t)},{2.8+0.7*cos(\t)});
+\draw[black!50,dashed,thin] plot[variable=\t,domain=0:180,samples=40] ({3.0+0.7*cos(60)*sin(\t)},{2.2+0.7*sin(60)*sin(\t)},{2.8+0.7*cos(\t)});
+\draw[black!50,dashed,thin] plot[variable=\t,domain=0:180,samples=40] ({3.0+0.7*cos(120)*sin(\t)},{2.2+0.7*sin(120)*sin(\t)},{2.8+0.7*cos(\t)});
+
+% ========== 锥体 ==========
+% 底面
+\draw[gray!60,thick,fill=gray!30,opacity=0.5] 
+    plot[variable=\t,domain=0:360,samples=60] ({4.8+0.5*cos(\t)},{3.3+0.3*sin(\t)},4.5);
+
+% 锥体母线（直接画，不用 foreach）
+\draw[gray!60,thin] (D11) -- (5.3,3.3,4.5);
+\draw[gray!60,thin] (D11) -- ({4.8+0.5*cos(45)},{3.3+0.3*sin(45)},4.5);
+\draw[gray!60,thin] (D11) -- ({4.8+0.5*cos(90)},{3.3+0.3*sin(90)},4.5);
+\draw[gray!60,thin] (D11) -- ({4.8+0.5*cos(135)},{3.3+0.3*sin(135)},4.5);
+\draw[gray!60,thin] (D11) -- (4.3,3.3,4.5);
+\draw[gray!60,thin] (D11) -- ({4.8+0.5*cos(225)},{3.3+0.3*sin(225)},4.5);
+\draw[gray!60,thin] (D11) -- ({4.8+0.5*cos(270)},{3.3+0.3*sin(270)},4.5);
+\draw[gray!60,thin] (D11) -- ({4.8+0.5*cos(315)},{3.3+0.3*sin(315)},4.5);
+
+% ========== 连线 ==========
+\draw[thick] (D11) -- (A);
+\draw[thick] (D11) -- (B);
+\draw[thick] (D11) -- (C);
+\draw[thick] (D11) -- (P);
+\draw[red,dashed,thick] (D11) -- (S);
+
+% 圆柱内部虚线
+\draw[black,dotted,thick] (A) -- (P);
+\draw[black,dotted,thick] (B) -- (E);
+\draw[black,dotted,thick] (E) -- (P);
+
+% ========== 标注 ==========
+\fill (A) circle (1.5pt); \node[font=\bfseries] at ($(A)+(0.2,0.2,0.2)$) {$A$};
+\fill (B) circle (1.5pt); \node[font=\bfseries] at ($(B)+(0.2,0.2,0.2)$) {$B$};
+\fill (C) circle (1.5pt); \node[font=\bfseries] at ($(C)+(0.2,0.2,0.2)$) {$C$};
+\fill (E) circle (1.5pt); \node[font=\bfseries] at ($(E)+(0.2,0.2,0.2)$) {$E$};
+\fill[red] (P) circle (2pt); \node[font=\bfseries] at ($(P)+(0.2,0.2,0.2)$) {$P$};
+\fill (D11) circle (1.5pt); \node[font=\bfseries] at ($(D11)+(0.2,0.2,0.2)$) {$D_{11}$};
+
+\end{tikzpicture}
+\end{document}
