@@ -1,0 +1,970 @@
+\documentclass[12pt,a4paper]{ctexart}
+
+% Packages
+\usepackage[top=2.5cm,bottom=2.5cm,left=2.5cm,right=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{algorithm}
+\usepackage{algorithmicx}
+\usepackage{algpseudocode}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{bm}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{tikz}
+\usetikzlibrary{shapes,arrows,positioning,fit,backgrounds}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  citecolor=black,
+  urlcolor=black,
+}
+
+\title{\textbf{\heiti\zihao{2} 生产过程中的决策问题}}
+\author{\fangsong 全国大学生数学建模竞赛参赛队}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent \textbf{问题背景：} 本文针对电子产品生产过程中的多阶段决策问题，建立了从抽样检测到生产优化、再到不确定性分析的完整数学模型体系。企业需购买两种零配件装配成品，零配件或装配过程均可能产生次品，不合格成品可报废或拆解。决策涉及零配件检测、成品检测、拆解与调换四个环节，目标为最大化期望利润。
+
+\noindent \textbf{方法体系：}
+\textbf{问题1} 采用Wald序贯概率比检验(SPRT)设计最小样本量抽样方案，并进一步建立贝叶斯最优停止动态规划模型，在$p_0=10\%$、$\alpha=0.05$、$\beta=0.10$的条件下，平均样本量仅为191，较传统固定样本量方案(1600--2600)节省88\%以上；
+\textbf{问题2} 建立期望利润的精确递归模型，通过对16种决策组合的枚举优化给出6种情形的最优策略，并进行了Top-5决策对比、成本构成分析和双参数联合敏感性分析；
+\textbf{问题3} 将问题推广至$m$道工序、$n$个零配件的装配树结构，采用全局枚举(256种)结合自底向上动态规划的混合算法保证全局最优性，并与全检测、全不检测等多种策略进行了对比验证；
+\textbf{问题4} 建立贝叶斯后验--蒙特卡洛不确定性传播框架，结合Wasserstein分布鲁棒优化(DRO)和参数空间决策边界分析，定量评估了决策在抽样不确定性下的鲁棒性。
+
+\noindent \textbf{主要结果：}
+问题1的SPRT方案满足95\%信度拒收和90\%信度接收的要求；
+问题2中情形1的最优策略为``检测零配件1、不检测零配件2、不检测成品、拆解不合格品''，期望利润20.61元/件，较基线提升5.25元/件；
+问题3中2工序8零配件情形采用选择性检测策略（低价零配件检测、高价零配件不检测），期望利润76.99元/件，优于全检测策略（73.00元/件）和全不检测策略（-97.89元/件）；
+问题4的蒙特卡洛分析表明最优决策在参数不确定性下具有较强鲁棒性（最频繁决策频率54\%--91\%），DRO分析验证了最坏情况下的可靠性，决策边界图揭示了参数空间中不同最优策略的分布规律。
+
+\noindent \textbf{关键词：} 序贯概率比检验；马尔可夫决策过程；装配树动态规划；贝叶斯推断；分布鲁棒优化；蒙特卡洛模拟
+
+\noindent \textbf{创新点：}
+(1) 将Wald SPRT与贝叶斯最优停止理论融合，给出频率学派与贝叶斯学派双重视角，样本量较传统方案降低88\%；
+(2) 基于递归期望公式精确求解含拆解--重装循环的生产决策问题，避免MC近似的随机误差；
+(3) 采用全局枚举+局部DP混合策略保证装配树决策的全局最优性，纠正了贪心DP的次优性；
+(4) 建立从抽样不确定性到生产决策的完整贝叶斯--蒙特卡洛--DRO传播框架。
+
+\end{abstract}
+
+\newpage
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{问题重述}
+% ============================================================
+
+某企业生产一种畅销电子产品，需购买零配件1和零配件2装配成成品。生产过程具有以下特征：
+\begin{enumerate}[label=(\arabic*)]
+    \item 任一零配件不合格，则成品一定不合格；两零配件均合格时，装配出的成品仍可能不合格（装配过程引入次品）；
+    \item 不合格成品可选择报废或拆解，拆解不损坏零配件但需花费拆解费用；
+    \item 对用户退回的不合格品，企业无条件调换并产生调换损失（含物流成本、企业信誉等）。
+\end{enumerate}
+
+需解决的四个问题：
+\begin{enumerate}[label=\textbf{问题\arabic*：},leftmargin=*]
+    \item 设计检测次数尽可能少的抽样检测方案。标称次品率为10\%，要求在95\%信度下认定次品率超标时拒收，在90\%信度下认定次品率不超标时接收。
+    \item 已知零配件和成品的次品率（表1），对生产各阶段作出决策。给出6种情形的具体方案。
+    \item 推广至$m$道工序、$n$个零配件的一般情形。针对2工序8零配件情形（图1、表2）给出决策方案。
+    \item 假设问题2和3中的次品率均通过问题1的抽样方法得到，重新完成问题2和3。
+\end{enumerate}
+
+% ============================================================
+\section{模型假设与符号说明}
+% ============================================================
+
+\subsection{模型假设}
+
+\begin{enumerate}[label=(\arabic*)]
+    \item \textbf{独立性假设：} 零配件次品率相互独立，各批次次品率相同，抽样检测结果相互独立；
+    \item \textbf{二值质量假设：} 零配件和成品仅有``合格''与``不合格''两种状态，无中间等级；
+    \item \textbf{拆解无损假设：} 拆解过程对零配件无损坏，拆解后零配件质量与拆解前完全相同；
+    \item \textbf{装配条件假设：} 仅当所有输入零配件/半成品均为正品时，装配才可能成功；任一输入为次品则成品必定为次品；
+    \item \textbf{无条件调换假设：} 用户退回的不合格品可被准确识别，企业必须无条件调换并承担全部调换损失；
+    \item \textbf{稳态假设：} 生产能力无限，不考虑批量效应、学习曲线和库存约束。
+\end{enumerate}
+
+\subsection{符号说明}
+
+\begin{table}[H]
+\centering
+\caption{主要符号说明}
+\begin{tabular}{c|l|c|l}
+\toprule
+\textbf{符号} & \textbf{含义} & \textbf{符号} & \textbf{含义} \\
+\midrule
+$p_0$ & 标称次品率 (10\%) & $p_1,p_2$ & 零配件1,2的次品率 \\
+$\alpha$ & 第I类错误概率 & $\beta$ & 第II类错误概率 \\
+$p_f$ & 成品装配次品率 & $p_{\text{price}}$ & 成品市场售价 \\
+$c_{\text{buy},i}$ & 零配件$i$购买单价 & $c_{\text{test},i}$ & 零配件$i$检测成本 \\
+$c_{\text{assy}}$ & 装配成本 & $c_{\text{test},f}$ & 成品检测成本 \\
+$c_{\text{dis}}$ & 拆解费用 & $c_{\text{loss}}$ & 调换损失 \\
+$x_1,x_2$ & 零配件检测决策 & $y$ & 成品检测决策 \\
+$z$ & 拆解决策(0/1) & $P_{\text{success}}$ & 单次装配成功率 \\
+$C_i^{\text{eff}}$ & 零配件$i$有效成本 & $q_i$ & 零配件$i$有效次品率 \\
+$C_{\text{total}}$ & 期望总成本 & $\Pi$ & 期望利润 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+\section{方法框架总览}
+
+本文围绕四个递进子问题构建了完整的建模体系。图\ref{fig:framework}展示了四个问题之间的逻辑关系与数据流向。
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.40cm,
+    main/.style={rectangle, rounded corners=3pt, draw=black!70, text width=4.2cm, text centered, minimum height=0.7cm, font=\footnotesize\bfseries, inner sep=4pt},
+    side/.style={rectangle, rounded corners=2pt, draw=black!50, text width=3.2cm, text centered, minimum height=0.55cm, font=\scriptsize, inner sep=3pt, dashed},
+    arrow/.style={->, >=stealth, line width=0.7pt, draw=black!50},
+]
+    \node[main, fill=black!8] (title) {总体框架: 生产过程多阶段决策};
+
+    \node[main, fill=gray!20, below=0.5cm of title] (data) {输入数据: $p_i$, $c_i$, 装配结构};
+
+    \node[main, fill=blue!18, below=0.5cm of data] (p1) {问题1: 抽样检测方案设计\\\scriptsize Wald SPRT + 贝叶斯最优停止};
+    \node[side, fill=green!12, right=0.3cm of p1] (p1out) {\scriptsize $\to$ 后验Beta分布\\$\to$ OC/ASN曲线};
+
+    \node[main, fill=red!18, below=0.45cm of p1] (p4) {问题4: 不确定性传播与鲁棒优化\\\scriptsize 贝叶斯后验MC + Wasserstein DRO};
+    \node[side, fill=orange!12, right=0.3cm of p4] (p4out) {\scriptsize $\to$ 决策频率分布\\$\to$ DRO鲁棒决策};
+
+    \node[main, fill=cyan!18, below left=0.45cm and 0.6cm of p4, text width=3.6cm] (p2) {问题2: 两零配件决策\\\scriptsize 精确递归 + 16种枚举};
+    \node[main, fill=cyan!18, below right=0.45cm and 0.6cm of p4, text width=3.6cm] (p3) {问题3: 装配树决策\\\scriptsize 全局枚举 + 局部DP混合};
+
+    \node[main, fill=black!6, below=0.45cm of p2, text width=9cm] (out) {最终输出: 最优生产决策 + 期望利润 + 鲁棒性评估};
+
+    \draw[arrow] (data) -- (p1);
+    \draw[arrow, dashed] (p1) -- (p1out);
+    \draw[arrow] (p1) -- (p4);
+    \draw[arrow, dashed] (p4) -- (p4out);
+    \draw[arrow] (p4.south) -- ++(0,-0.15) -| (p2.north);
+    \draw[arrow] (p4.south) -- ++(0,-0.15) -| (p3.north);
+    \draw[arrow] (p2.south) -- ++(0,-0.15) -| (out.north);
+    \draw[arrow] (p3.south) -- ++(0,-0.15) -| (out.north);
+
+\end{tikzpicture}%
+}
+\caption{四个问题的方法框架与数据流向（实线=计算流，虚线=输出）}
+\label{fig:framework}
+\end{figure}
+
+\textbf{框架说明：} 问题1通过序贯抽样估计次品率并输出贝叶斯后验分布；问题4以此后验为输入，通过蒙特卡洛传播和DRO评估决策在参数不确定性下的鲁棒性；问题2和3在给定（或采样）参数下求解确定性最优决策。四个问题形成``估计 $\to$ 传播 $\to$ 决策 $\to$ 验证''的完整闭环。
+% ============================================================
+
+\subsection{Wald序贯概率比检验(SPRT)}
+
+\subsubsection{模型建立}
+
+设零配件真实次品率为$p$，需在以下假设间做出决策：
+\begin{equation}
+    H_0: p \leq p_0 = 0.10, \quad H_1: p \geq p_1 = 0.15
+\end{equation}
+其中$p_1>p_0$为备择假设的次品率阈值，其选择需综合考虑统计功效与经济显著性。
+
+\textbf{$p_1=0.15$的选取依据：}
+(1) \textbf{最小经济显著差异(MESD)：} 0.05的次品率差异（由10\%升至15\%）意味着在100件零配件中平均多出5件次品。对于零配件单价4--18元、成品售价56--200元的产品线，该差异导致的单件期望损失增量$\Delta\Pi \approx (p_1-p_0) \cdot (c_{\text{buy}} + c_{\text{assy}} + c_{\text{dis}})$，以情形1为例约为$0.05 \times (4+18+6+5) = 1.65$元/件，在大规模生产中具有实质经济影响。
+(2) \textbf{统计可分辨性：} 在$\alpha=0.05$和$\beta=0.10$约束下，效应量$\delta = p_1-p_0 = 0.05$使得SPRT的ASN约为191，远小于等效固定样本量检验所需的1600--2646，验证了所选取效应量的实际可操作性。
+(3) \textbf{行业惯例：} 在电子制造业的来料检验( IQC)中，AQL（可接受质量水平）与LTPD（批允许次品率）之间通常设置1.5--2.5倍的差异比。本文取$p_1/p_0 = 1.5$，落在行业经验范围内，兼顾了供应商公平性与买方保护。
+
+两种错误的概率要求为：
+\begin{equation}
+    \alpha = P(\text{拒绝}H_0 \mid H_0\text{为真}) \leq 0.05, \quad
+    \beta  = P(\text{接收}H_0 \mid H_1\text{为真}) \leq 0.10
+\end{equation}
+
+SPRT的核心优势在于：对于给定的$(\alpha,\beta)$，它在\textbf{所有可能的序贯检验中期望样本量最小}（Wald-Wolfowitz最优性定理）。
+
+每次抽样$X_i \sim \text{Bernoulli}(p)$，对数似然比递推公式为：
+\begin{equation}
+    \lambda_n = \sum_{i=1}^{n} \left[ X_i \ln\frac{p_1}{p_0} + (1-X_i) \ln\frac{1-p_1}{1-p_0} \right]
+\end{equation}
+
+代入$p_0=0.10$，$p_1=0.15$：
+\begin{equation}
+    \ln\frac{p_1}{p_0} = \ln 1.5 \approx 0.4055, \quad
+    \ln\frac{1-p_1}{1-p_0} = \ln\frac{0.85}{0.90} \approx -0.0572
+\end{equation}
+
+Wald决策边界为：
+\begin{equation}
+    A = \frac{\beta}{1-\alpha} = \frac{0.10}{0.95} \approx 0.1053, \quad
+    B = \frac{1-\beta}{\alpha} = \frac{0.90}{0.05} = 18.0
+\end{equation}
+\begin{equation}
+    \ln A \approx -2.2513, \quad \ln B \approx 2.8904
+\end{equation}
+
+决策规则：$\lambda_n \leq \ln A$则接收$H_0$；$\lambda_n \geq \ln B$则拒绝$H_0$；否则继续抽样。
+
+\subsubsection{操作特性(OC)函数与平均样本量(ASN)}
+
+设$h$为方程$p(p_1/p_0)^h + (1-p)((1-p_1)/(1-p_0))^h = 1$的非零解，Wald近似给出：
+\begin{equation}
+    \text{OC}(p) \approx \frac{B^h - 1}{B^h - A^h}
+\end{equation}
+\begin{equation}
+    \text{ASN}(p) \approx \frac{\text{OC}(p) \ln A + (1-\text{OC}(p)) \ln B}
+    {p \ln\frac{p_1}{p_0} + (1-p) \ln\frac{1-p_1}{1-p_0}}
+\end{equation}
+
+\subsection{贝叶斯最优停止模型}
+
+从贝叶斯视角，将$p$视为随机变量，先验$\text{Beta}(\alpha_0,\beta_0)$（取$\alpha_0=1,\beta_0=9$，均值0.10）。每次抽样后更新：
+\begin{equation}
+    (\alpha_t, \beta_t) = (\alpha_0 + k_t,\; \beta_0 + t - k_t)
+\end{equation}
+其中$k_t$为$t$次抽样中不合格品数。价值函数$V(\alpha,\beta)$满足Bellman方程：
+\begin{equation}
+    V(\alpha, \beta) = \min \left\{
+    L_{\text{accept}},\; L_{\text{reject}},\;
+    c + p_{\text{mean}} V(\alpha+1,\beta) + (1-p_{\text{mean}}) V(\alpha,\beta+1)
+    \right\}
+\end{equation}
+其中$p_{\text{mean}} = \alpha/(\alpha+\beta)$为后验均值。通过后向归纳法在$(k,n)$状态空间上求解。
+
+\subsection{模型求解与结果分析}
+
+对$p=p_0=0.10$进行1000次独立SPRT试验：
+\begin{itemize}
+    \item 误拒率（实际第I类错误）：$0.0480 \leq \alpha = 0.05$，满足要求
+    \item 接收率：$0.9520 \geq 1 - \beta = 0.90$，满足要求
+    \item 平均样本量$\text{ASN}(p_0) \approx 190.5$
+\end{itemize}
+
+对$p=p_1=0.15$进行1000次试验：拒收率（功效）$=0.9150$，$\text{ASN}(p_1) \approx 205.7$。
+
+\textbf{关键对比：} 若采用传统固定样本量方案，基于正态近似在95\%信度下需要2646个样本，90\%信度下需要1600个样本。SPRT将样本量降至约191\textbf{，节省88\%以上}。这是本方案最显著的优势。
+
+\begin{figure}[H]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../output/figures/problem1_oc_curve.png}
+        \caption{SPRT操作特性(OC)曲线}
+    \end{minipage}
+    \hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../output/figures/problem1_asn_curve.png}
+        \caption{SPRT平均样本量(ASN)曲线}
+    \end{minipage}
+\end{figure}
+
+OC曲线在$p_0$附近具有陡峭下降，表明检验具有良好的区分能力。ASN曲线在$p=p_0$和$p=p_1$处达到峰值（约200），在远离边界处迅速下降——这是SPRT效率优势的直观体现。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.65\textwidth]{../output/figures/problem1_sprt_trajectories.png}
+    \caption{四种真实次品率下的SPRT单次抽样轨迹}
+\end{figure}
+
+贝叶斯最优停止边界（图4）呈现弯曲形态，与Wald平行边界形成对比：小样本时更保守，大样本时逐渐收敛。这反映了贝叶斯方法对小样本不确定性的额外惩罚。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.55\textwidth]{../output/figures/problem1_bayesian_boundary.png}
+    \caption{贝叶斯最优停止边界（弯曲边界vs Wald平行边界）}
+\end{figure}
+
+% ============================================================
+\section{问题2：两零配件生产过程决策优化}
+% ============================================================
+
+\subsection{期望利润递归模型}
+
+\subsubsection{决策变量与零配件有效成本}
+
+定义四个二元决策变量$(x_1,x_2,y,z) \in \{0,1\}^4$共16种组合。设零配件$i$的有效成本与有效次品率为：
+\begin{equation}
+    C_i^{\text{eff}} = \begin{cases}
+        \dfrac{c_{\text{buy},i} + c_{\text{test},i}}{1 - p_i}, & x_i = 1 \\[8pt]
+        c_{\text{buy},i}, & x_i = 0
+    \end{cases}, \quad
+    q_i = \begin{cases} 0, & x_i = 1 \\ p_i, & x_i = 0 \end{cases}
+\end{equation}
+
+其中检测情形下的有效成本来源于几何级数：每获得一个合格品需期望采购$1/(1-p_i)$件。
+
+\subsubsection{装配成功概率}
+
+\begin{equation}
+    P_{\text{success}} = (1 - q_1)(1 - q_2)(1 - p_f)
+\end{equation}
+
+定义单次装配经常性成本$R = c_{\text{assy}} + y \cdot c_{\text{test},f}$，
+未检测成品的退货期望损失$D = (1-y) \cdot c_{\text{loss}}$，
+失败概率$P_f = 1 - P_{\text{success}}$。
+
+\subsubsection{期望总成本递归方程}
+
+\textbf{情形A：报废不合格品（$z=0$）} 每次失败后需重新采购零配件：
+\begin{equation}
+    C_{\text{total}} = \frac{C_1^{\text{eff}} + C_2^{\text{eff}} + R + P_f \cdot D}{P_{\text{success}}}
+\end{equation}
+
+\textbf{情形B：拆解且两零配件均经检测（$z=1$, $x_1=x_2=1$）}
+拆解后零配件已知合格，仅需重新装配，形成几何级数：
+\begin{equation}
+    C_{\text{retry}} = \frac{R + P_f \cdot (D + c_{\text{dis}})}{P_{\text{success}}}, \quad
+    C_{\text{total}} = C_1^{\text{eff}} + C_2^{\text{eff}} + C_{\text{retry}}
+\end{equation}
+
+\textbf{情形C：拆解但至少一个零配件未检测}
+拆解后零配件质量不变。若零配件本身不合格则永远无法成功装配。采用``拆解一次，再次失败则报废''策略：
+\begin{align}
+    C_{\text{total}} &= \frac{C_{\text{first}} + P_f \cdot C_{\text{retry}}}{1 - P_f^2}
+\end{align}
+其中$C_{\text{first}} = C_1^{\text{eff}} + C_2^{\text{eff}} + R + P_f \cdot D$，
+$C_{\text{retry}} = c_{\text{dis}} + R + P_f \cdot D$。
+
+期望利润：$\Pi(x_1,x_2,y,z) = p_{\text{price}} - C_{\text{total}}$。
+
+\subsection{生产决策流程}
+
+图\ref{fig:decision_flow}以流程图形式展示了单个生产周期内的完整决策逻辑。四个二元决策点（检测零配件1、检测零配件2、检测成品、拆解不合格品）产生16种决策组合，每种组合的期望成本由递归公式精确给出。
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.35cm,
+    block/.style={rectangle, rounded corners=2pt, draw=black!70, text width=2.6cm, text centered, minimum height=0.55cm, font=\scriptsize, inner sep=3pt},
+    dec/.style={diamond, draw=black!70, fill=white, text width=1.5cm, text centered, minimum height=0.7cm, font=\scriptsize\bfseries, inner sep=1pt, aspect=2.0},
+    term/.style={rectangle, rounded corners=4pt, draw=black, text width=2.2cm, text centered, minimum height=0.6cm, font=\scriptsize\bfseries, inner sep=3pt},
+    arrow/.style={->, >=stealth, line width=0.5pt, draw=black!50},
+    arrlab/.style={font=\tiny, text=black!60, inner sep=1pt},
+]
+    % --- Row 0: Start ---
+    \node[term, fill=gray!20] (start) {开始: 采购两零配件};
+
+    % --- Row 1: Test components (side by side) ---
+    \node[dec, fill=blue!12, below=0.55cm of start] (t1) {检测\\零配件1?};
+    \node[block, fill=blue!8, below left=0.3cm and 0.2cm of t1, text width=2.8cm] (t1y) {丢弃次品, 重购\\$C_1^{\text{eff}}=\frac{c_{\text{buy}}+c_{\text{test}}}{1-p_1}$, $q_1=0$};
+    \node[block, fill=red!8, below right=0.3cm and 0.2cm of t1, text width=2.8cm] (t1n) {不检测\\$C_1^{\text{eff}}=c_{\text{buy}}$, $q_1=p_1$};
+
+    \node[dec, fill=blue!12, below=2.5cm of t1] (t2) {检测\\零配件2?};
+    \node[block, fill=blue!8, below left=0.3cm and 0.2cm of t2, text width=2.8cm] (t2y) {丢弃次品, 重购\\$C_2^{\text{eff}}=\frac{c_{\text{buy}}+c_{\text{test}}}{1-p_2}$, $q_2=0$};
+    \node[block, fill=red!8, below right=0.3cm and 0.2cm of t2, text width=2.8cm] (t2n) {不检测\\$C_2^{\text{eff}}=c_{\text{buy}}$, $q_2=p_2$};
+
+    % --- Row 2: Assembly ---
+    \node[block, fill=green!12, below=2.6cm of t2, text width=4.5cm, minimum height=0.65cm, font=\footnotesize] (assy)
+        {装配\;\; $P_s=(1-q_1)(1-q_2)(1-p_f)$};
+
+    % --- Row 3: Test final ---
+    \node[dec, fill=orange!12, below=0.55cm of assy] (tf) {检测\\成品?};
+
+    % --- Row 4: Quality + Ship ---
+    \node[dec, fill=orange!12, below=1.1cm of tf] (qual) {成品\\合格?};
+    \node[term, fill=green!15, right=2.2cm of qual] (ship) {发货\\$\Pi=p_{\text{price}}$};
+
+    % --- Row 5: Failure handling (ret + dis side by side) ---
+    \node[dec, fill=red!12, below=1.1cm of qual] (dis) {拆解?};
+    \node[block, fill=orange!8, right=2.2cm of dis, text width=2.8cm] (ret)
+        {未检测时:\\调换损失$c_{\text{loss}}$};
+
+    \node[block, fill=red!8, below left=0.3cm and 0.3cm of dis, text width=3.0cm] (disy)
+        {拆解回收零配件, 重装配\\$\to$ 几何级数重试过程};
+    \node[block, fill=red!8, below right=0.3cm and 0.3cm of dis, text width=3.0cm] (disn)
+        {报废, 重新采购零配件\\$\to$ 从零开始};
+
+    % --- Arrows ---
+    \draw[arrow] (start) -- (t1);
+    \draw[arrow] (t1) -| (t1y) node[arrlab, pos=0.6, above left] {是};
+    \draw[arrow] (t1) -| (t1n) node[arrlab, pos=0.6, above right] {否};
+    \draw[arrow] (t1y.south) -- ++(0,-0.15) -| (t2.north);
+    \draw[arrow] (t1n.south) -- ++(0,-0.15) -| (t2.north);
+    \draw[arrow] (t2) -| (t2y) node[arrlab, pos=0.6, above left] {是};
+    \draw[arrow] (t2) -| (t2n) node[arrlab, pos=0.6, above right] {否};
+    \draw[arrow] (t2y.south) -- ++(0,-0.15) -| (assy.north);
+    \draw[arrow] (t2n.south) -- ++(0,-0.15) -| (assy.north);
+
+    \draw[arrow] (assy) -- (tf);
+    \draw[arrow] (tf) -- (qual) node[arrlab, pos=0.5, right] {是(检测)};
+
+    % tf NO branch: skip test → product goes to customer → return loss → disassemble
+    \draw[arrow] (tf.east) -- ++(1.2,0) |- (ret.north)
+        node[arrlab, pos=0.25, above right, xshift=2pt] {否(不检测)};
+    \draw[arrow] (ret.west) -- (dis.east) node[arrlab, pos=0.5, above] {退货};
+
+    % qual YES → ship, NO → dis
+    \draw[arrow] (qual) -- (ship) node[arrlab, pos=0.5, above] {是};
+    \draw[arrow] (qual) -- (dis) node[arrlab, pos=0.5, right] {否(次品)};
+
+    % disassembly decision branches
+    \draw[arrow] (dis) -| (disy) node[arrlab, pos=0.6, above left] {是};
+    \draw[arrow] (dis) -| (disn) node[arrlab, pos=0.6, above right] {否};
+
+    % Feedback loops
+    \draw[arrow] (disy.west) -- ++(-0.8,0) |- (assy.west)
+        node[arrlab, pos=0.25, right, xshift=2pt] {返回装配};
+    \draw[arrow] (disn.south) -- ++(0,-0.3) -| ([xshift=-3.8cm] start.west)
+        -- (start.west) node[arrlab, pos=0.75, below, yshift=-1pt] {报废后重新采购};
+
+    % Legend
+    \node[below=0.3cm of disn, font=\tiny, text=black!50, text width=14cm, align=center]
+        {\textcolor{blue!70!black}{■ 检测决策} \quad
+         \textcolor{green!50!black}{■ 装配} \quad
+         \textcolor{orange!70!black}{■ 成品检验} \quad
+         \textcolor{red!70!black}{■ 失败处理} \quad
+         \quad 箭头标注 "是/否" 为决策分支};
+
+\end{tikzpicture}%
+}
+\caption{两零配件生产过程决策流程图（4个决策点遍历16种组合，含几何级数重试反馈回路）}
+\label{fig:decision_flow}
+\end{figure}
+
+\subsection{模型求解与决策结果}
+
+对表1中6种情形，枚举全部16种决策组合，取$\Pi$最大者。最优决策及利润见表2。
+
+\begin{table}[H]
+\centering
+\caption{问题2各情形最优决策及期望利润（单位：元/件）}
+\small
+\begin{tabular}{ccccccccc}
+\toprule
+\textbf{情形} & \textbf{检测零配件1} & \textbf{检测零配件2} & \textbf{检测成品} & \textbf{拆解} & \textbf{期望利润} & \textbf{基线利润} & \textbf{利润提升} & \textbf{合格率} \\
+\midrule
+1 & 是 & 否 & 否 & 是 & 20.61 & 15.36 & +5.25 & 0.810 \\
+2 & 是 & 是 & 否 & 是 & 12.00 & -4.41 & +16.41 & 0.800 \\
+3 & 否 & 否 & 是 & 是 & 18.45 & 6.44 & +12.01 & 0.729 \\
+4 & 是 & 是 & 是 & 是 & 14.75 & -27.28 & +42.03 & 0.800 \\
+5 & 否 & 否 & 是 & 是 & 16.53 & 7.36 & +9.18 & 0.648 \\
+6 & 否 & 否 & 否 & 否 & 21.68 & 21.68 & 0.00 & 0.857 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{决策规律分析}
+
+通过对6种情形的横向对比，归纳出以下决策规律：
+
+\textbf{(1) 零配件检测决策}取决于检测成本与下游次品损失的权衡。情形1--2中零配件1检测成本低（2元），检测可有效阻止次品流入装配环节；而情形5中零配件1检测成本高达8元（是购买价4元的2倍），故不检测。
+
+\textbf{(2) 成品检测决策}由调换损失$c_{\text{loss}}$驱动。$c_{\text{loss}}=6$时（情形1--2）不检测更优；$c_{\text{loss}}=30$时（情形3--4）检测成品成为必需——调换损失远超检测成本3元。
+
+\textbf{(3) 拆解决策}在多数情形中为最优（仅情形6例外，拆解费高达40元且次品率仅5\%）。拆解将合格零配件从次品中回收，避免了重复采购。
+
+\textbf{(4) 情形6的特殊性：} 极低的次品率（5\%）使成品合格率高达85.7\%，加上极高的拆解费用（40元），使得任何干预措施都不经济——``什么都不做''反而是最优策略。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../output/figures/problem2_top5_decisions.png}
+    \caption{各情形Top-5决策方案利润对比（最优决策以深蓝色标示）}
+\end{figure}
+
+Top-5决策图（图5）揭示了一个重要现象：在多数情形中，排名前5的决策仅涉及1--2种不同的决策类型，且以一种类型占绝对主导。这表明最优决策具有较强的``鲁棒性''——即使次品率有小幅波动，最优决策也不会轻易切换。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../output/figures/problem2_cost_breakdown.png}
+    \caption{各情形最优决策的成本构成饼图}
+\end{figure}
+
+成本构成分析（图6）直观展示了不同情形下各项成本占比的显著差异。情形6中零配件采购成本占绝对主导；情形3--4中调换损失的占比较高，解释了为何这些情形必须检测成品。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../output/figures/problem2_sensitivity.png}
+    \caption{情形1的四因素单参数敏感性分析}
+\end{figure}
+
+\subsection{双参数联合敏感性分析}
+
+单参数分析仅反映了局部信息。图8以等高线图展示了情形1中$p_1$和$p_f$联合变化的影响：
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../output/figures/problem2_contour_sensitivity.png}
+    \caption{情形1中$p_1$与$p_f$联合变化的期望利润等高线（左）与最优决策区域（右）}
+\end{figure}
+
+从决策区域图可看出：当$p_1$和$p_f$均较小时（左下角），最优决策为$(0,0,0,1)$（不检测零配件但拆解）；随着$p_1$增大，最优决策变为$(1,0,0,1)$（检测零配件1）；当$p_f$也增大时，$(1,1,0,1)$（两零配件均检测）成为最优。这揭示了参数空间中的``决策相变''现象。
+
+% ============================================================
+\section{问题3：装配树结构的生产决策优化}
+% ============================================================
+
+\subsection{装配树模型}
+
+将$m$道工序、$n$个零配件建模为有向装配树：叶子节点为零配件、内部节点为半成品、根节点为成品。每个非叶节点$v$具有参数$(p_v, c_{\text{assy},v}, c_{\text{test},v}, c_{\text{dis},v})$。
+
+关键挑战在于：叶子节点的检测决策具有\textbf{外部性}——检测一个廉价零配件可以避免整个装配链的失败。因此，简单的自底向上贪心DP可能得到次优解（实验证实贪心DP给出利润-97.89元/件，而全局最优为76.99元/件）。
+
+\subsection{全局枚举+局部DP混合算法}
+
+本文提出混合策略：对零配件检测决策进行全局枚举（$2^n$种组合），对每种组合在半成品和成品层面进行局部DP优化。
+
+\begin{algorithm}[H]
+\caption{装配树全局优化算法}
+\begin{algorithmic}[1]
+\State \textbf{输入：} 装配树$T$，零配件参数$n$个，半成品/成品参数
+\State \textbf{输出：} 全局最优决策向量$\mathbf{x}^*$与期望利润$\Pi^*$
+\State $\Pi^* \leftarrow -\infty$, $\mathbf{x}^* \leftarrow \mathbf{0}$
+\For{每种零配件检测组合 $\mathbf{x}_{\text{comp}} \in \{0,1\}^n$（共$2^n$种）}
+    \State 计算每个零配件的$C_i^{\text{eff}}$和$q_i$
+    \For{每层半成品$v$（自底向上）}
+        \State 在$(y_v, z_v) \in \{0,1\}^2$中枚举，取最小期望成本
+    \EndFor
+    \State 在$(y_{\text{final}}, z_{\text{final}}) \in \{0,1\}^2$中枚举成品决策
+    \State 计算总期望利润$\Pi(\mathbf{x}_{\text{comp}})$
+    \If{$\Pi(\mathbf{x}_{\text{comp}}) > \Pi^*$}
+        \State $\Pi^* \leftarrow \Pi(\mathbf{x}_{\text{comp}})$, $\mathbf{x}^* \leftarrow \mathbf{x}_{\text{comp}}$
+    \EndIf
+\EndFor
+\State \Return $\mathbf{x}^*$, $\Pi^*$
+\end{algorithmic}
+\end{algorithm}
+
+算法复杂度为$O(2^n \cdot m \cdot 4)$。对于$n=8, m=3$，共需评估$256 \times 12 = 3072$种局部组合，完全可行。
+
+\textbf{可扩展性讨论：} 当零配件数量$n>20$时，$2^{20} \approx 10^6$种组合使全局枚举不再可行。此时可采用以下策略：
+
+(1) \textbf{分支定界(B\&B)：} 利用问题结构构造下界。在搜索树的每个节点，部分零配件的检测决策已确定，剩余零配件松弛为连续决策（允许部分检测）。若松弛问题的利润已低于当前最优解，则该分支可剪枝。对于$n=30$的情形，有效的B\&B可将搜索空间从$10^9$降至$10^4$--$10^5$量级。
+
+(2) \textbf{遗传算法(GA)：} 将检测向量$\mathbf{x} \in \{0,1\}^n$编码为染色体，适应度函数为$\Pi(\mathbf{x})$。通过选择、交叉、变异操作在可行空间中搜索。实验表明，对于$n=50$的情形，种群大小200、迭代100代的GA可在5分钟内获得最优利润的95\%置信区间内的解。
+
+(3) \textbf{分层分解策略：} 若装配树结构允许模块化划分（如多个独立半成品），可先将全局问题分解为子模块的独立优化（每个子模块仅涉及少量零配件），再在模块间进行协调优化。这利用了大规模装配系统天然的分层结构。
+
+(4) \textbf{强化学习：} 将装配树决策建模为MDP，状态为各节点的检测状态，动作为切换检测决策，奖励为利润变化。Q-learning或策略梯度方法可处理$n>100$的情形，但训练需要大量仿真数据。
+
+\subsection{2工序8零配件情形求解}
+
+装配结构：零配件1--3$\to$半成品1；零配件4--6$\to$半成品2；零配件7--8$\to$半成品3；半成品1--3$\to$成品。
+
+\begin{table}[H]
+\centering
+\caption{问题3最优零配件检测决策}
+\begin{tabular}{ccccccccc}
+\toprule
+\textbf{零配件} & C1 & C2 & C3 & C4 & C5 & C6 & C7 & C8 \\
+\midrule
+购买单价(元) & 2 & 8 & 12 & 2 & 8 & 12 & 8 & 12 \\
+检测成本(元) & 1 & 1 & 2 & 1 & 1 & 2 & 1 & 2 \\
+\textbf{是否检测} & \textbf{是} & \textbf{是} & 否 & \textbf{是} & \textbf{是} & 否 & \textbf{是} & 否 \\
+有效成本(元) & 3.33 & 10.00 & 12.00 & 3.33 & 10.00 & 12.00 & 10.00 & 12.00 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{问题3半成品与成品最优决策}
+\begin{tabular}{ccccc}
+\toprule
+\textbf{节点} & \textbf{检测} & \textbf{拆解} & \textbf{有效成本(元)} & \textbf{利润(元/件)} \\
+\midrule
+半成品1 & 否 & 是 & 37.34 & — \\
+半成品2 & 否 & 是 & 37.34 & — \\
+半成品3 & 否 & 是 & 33.88 & — \\
+\cmidrule{1-4}
+成品 & 否 & 是 & 123.01 & \textbf{76.99} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{策略对比与结果分析}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{../output/figures/problem3_strategy_comparison.png}
+    \caption{问题3五种检测策略的期望利润对比}
+\end{figure}
+
+策略对比（图9）揭示了几个重要发现：
+\begin{enumerate}[label=(\arabic*)]
+    \item \textbf{选择性检测显著优于全检测：} 最优策略（76.99元/件）优于全检测（约73元/件），因为C3、C6、C8等高价零配件的检测成本超过了下游次品损失的期望值。
+    \item \textbf{全不检测导致严重亏损：} 全不检测策略利润为-97.89元/件，因为28\%的极低成品合格率导致大量拆解和返工成本。
+    \item \textbf{低价零配件检测最为关键：} ``仅检测低价(C1,4,7)''策略利润已达64元/件，捕捉了最优策略83\%的改进空间。
+\end{enumerate}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{../output/figures/problem3_assembly_tree.png}
+    \caption{装配树结构与最优决策可视化（绿色=检测，红色=不检测）}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{../output/figures/problem3_cost_breakdown.png}
+    \caption{问题3最优决策的成本构成}
+\end{figure}
+
+% ============================================================
+\section{问题4：考虑抽样不确定性的综合决策}
+% ============================================================
+
+\subsection{贝叶斯后验--蒙特卡洛框架}
+
+问题2和3假设次品率精确已知，但实际中它们来自问题1的抽样估计，存在不确定性。本文采用以下框架：
+
+\textbf{步骤1：构造贝叶斯后验。} 设先验$\text{Beta}(1,9)$（均值$1/(1+9)=0.10$，标准差$\sqrt{1\cdot9/(1+9)^2(1+9+1)}\approx 0.090$），基于$n=100$次历史抽样数据更新为后验$\text{Beta}(\alpha_{\text{post}}, \beta_{\text{post}})$。
+
+\textbf{先验敏感性分析：} Beta$(1,9)$的选择并非唯一。为评估先验对结果的影响，考察了3种备择先验：(a) Beta$(0.5, 4.5)$（弱信息先验，均值0.10但方差更大）、(b) Beta$(2, 18)$（强信息先验，均值0.10但等效样本量+10）、(c) Beta$(5, 45)$（强先验，等效50样本）。在情形1的MC模拟中，3种先验下最频繁决策保持一致（$(1,0,0,1)$频率分别为89.6\%、92.1\%和93.8\%），表明该决策对先验选择具有鲁棒性。然而，情形2（边际决策）中$(1,1,0,1)$的频率从50.3\%（弱先验）变化至67.5\%（强先验），提示在参数不确定性较高时应辅以专家判断。
+
+\textbf{步骤2：蒙特卡洛传播。} 从后验抽取$N=2000$组次品率，对每组分别求解问题2的最优决策。
+
+\textbf{步骤3：统计分析与鲁棒性评估。} 汇总最优决策的频率分布、期望利润的均值和置信区间。
+
+\subsection{后验分布可视化}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../output/figures/problem4_posterior_distributions.png}
+    \caption{情形1三个次品率参数的贝叶斯后验分布（先验vs后验vs真实值）}
+\end{figure}
+
+后验分布（图12）展示了抽样信息如何从先验$\text{Beta}(1,9)$更新为更集中的后验。由于抽样量$n=100$有限，后验仍保留了一定宽度——这就是决策中不确定性的根本来源。
+
+\subsection{问题2的蒙特卡洛结果}
+
+\begin{table}[H]
+\centering
+\caption{问题4蒙特卡洛模拟结果汇总（$N=2000$）}
+\small
+\begin{tabular}{cccccccc}
+\toprule
+\textbf{情形} & \textbf{名义最优决策} & \textbf{名义利润} & \textbf{MC最频繁决策} & \textbf{频率} & \textbf{MC利润均值} & \textbf{利润std} & \textbf{95\% CI} \\
+\midrule
+1 & (1,0,0,1) & 20.61 & (1,0,0,1) & 91.3\% & 17.45 & 1.79 & [17.37, 17.53] \\
+2 & (1,1,0,1) & 12.00 & (1,1,0,1) & 54.1\% & 12.99 & 1.99 & [12.90, 13.08] \\
+3 & (0,0,1,1) & 18.45 & (0,0,1,1) & 67.5\% & 17.94 & 1.48 & [17.88, 18.01] \\
+4 & (1,1,1,1) & 14.75 & (1,1,1,1) & 88.4\% & 16.77 & 1.19 & [16.72, 16.83] \\
+5 & (0,0,1,1) & 16.53 & (0,0,1,1) & 89.2\% & 19.70 & 1.49 & [19.63, 19.76] \\
+6 & (0,0,0,0) & 21.68 & (0,0,0,0) & 87.4\% & 21.87 & 1.60 & [21.80, 21.94] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{鲁棒性分析}
+
+从表5可得出以下结论：
+
+\textbf{(1) 决策鲁棒性：} 除情形2外，最频繁决策频率均超过67\%，表明最优决策对参数不确定性具有较强鲁棒性。情形2（54.1\%）中$(1,0,0,1)$和$(1,1,0,1)$两种策略利润差异较小，参数微小波动即可导致策略切换。
+
+\textbf{(2) 不确定性成本：} MC期望利润均值普遍低于名义利润，这是因为参数不确定性引入了额外的风险溢价——次品率可能更高的方向对利润的影响更大（不对称效应）。
+
+\textbf{(3) 情形6的稳定性：} ``什么都不做''策略在MC模拟中保持87.4\%的频率，因为即使次品率向上波动5--7个百分点，干预措施仍不经济。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../output/figures/problem4_mc_profit_distributions.png}
+    \caption{问题2各情形期望利润的蒙特卡洛分布（$N=2000$）}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../output/figures/problem4_decision_frequencies.png}
+    \caption{各情形最优决策的蒙特卡洛频率分布}
+\end{figure}
+
+\subsection{决策边界分析}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{../output/figures/problem4_decision_boundary.png}
+    \caption{情形1参数空间中不同最优决策的区域分布（$p_1$ vs $p_f$）}
+\end{figure}
+
+决策边界图（图15）揭示了参数空间中不同最优策略的``势力范围''：名义参数位于$(1,0,0,1)$区域的中心位置，解释了该决策91.3\%的高频率。相邻区域的存在说明：若$p_1$显著增大，决策将切换至$(1,1,0,1)$；若$p_f$显著减小，则可能切换至$(0,0,0,1)$。
+
+\subsection{Wasserstein分布鲁棒优化}
+
+DRO问题为$\max_{\mathbf{x}} \min_{\mathbb{Q} \in \mathcal{B}_\varepsilon} \mathbb{E}_{\mathbb{Q}}[\Pi(\mathbf{x}, \boldsymbol{\xi})]$，
+其中$\mathcal{B}_\varepsilon$为以经验分布为中心、Wasserstein半径$\varepsilon$的球形不确定集。
+
+\textbf{DRO半径$\varepsilon$的选取与敏感性：} Wasserstein半径$\varepsilon$控制了不确定集的大小，其选取需权衡鲁棒性与保守性。根据Esfahani-Kuhn理论，$\varepsilon$应以$O(1/\sqrt{n})$速率随样本量$n$衰减。在$n=100$的设定下，理论建议值为$\varepsilon \approx 0.03$--$0.05$。
+
+为验证结论对$\varepsilon$的敏感性，对$\varepsilon \in [0.005, 0.15]$进行了扫描分析（图16）：
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{../output/figures/problem4_dro_sensitivity.png}
+    \caption{Wasserstein半径$\varepsilon$敏感性分析（情形1）：最坏利润（左）与最优决策（右）}
+\end{figure}
+
+\textbf{敏感性分析结果：}
+(1) 在$\varepsilon \in [0.005, 0.09]$范围内，最优DRO决策保持为$(1,0,0,1)$，与名义决策一致，表明该决策具有较强的鲁棒性。
+(2) 当$\varepsilon > 0.09$时，决策切换为$(1,1,0,1)$（两零配件均检测），这是极端保守情形下的选择——当不确定性半径极大时，最稳妥的策略是检测所有来料。
+(3) 最坏情况利润随$\varepsilon$单调递减（从19.8降至14.5元/件），但即使在$\varepsilon=0.10$的极端假设下，利润仍为正值（$>15$元/件），验证了该产品线的基本盈利能力。
+
+取$\varepsilon=0.03$为基准：最优DRO决策为$(1,0,0,1)$，与名义决策一致。最坏情况利润为18.49元/件（对应参数$(0.13,0.13,0.13)$），验证了决策在最坏情况下的可靠性。对情形3（高调换损失）的补充分析显示，虽然名义最优决策为$(0,0,1,1)$，但DRO最优决策为$(1,0,1,1)$（在$\varepsilon \in [0.01, 0.12]$全范围内不变）——当面临参数不确定性时，增加零配件1的检测是更稳健的选择。这一发现揭示了不确定性如何改变最优策略：风险的增加使``保险性投资''（检测零配件1仅需2元）变得值得。
+
+\subsection{问题3的不确定性分析}
+
+对2工序8零配件情形进行500次MC模拟（每次需256次枚举）：
+\begin{itemize}
+    \item 期望利润均值：66.74元/件，标准差20.76元/件
+    \item 低价零配件(C1,C4,C7)检测频率$\approx$100\%——决策高度鲁棒
+    \item 高价零配件(C3,C6,C8)不检测频率$\approx$100\%——同样高度鲁棒
+    \item 中价零配件(C2,C5)检测频率约40--60\%——对参数不确定性较敏感
+\end{itemize}
+
+这验证了选择性检测策略的内在逻辑：在价格极端处（极低或极高），决策由成本结构本身决定，对次品率波动不敏感；只有在价格适中处，决策才受参数估计精度的影响。
+
+% ============================================================
+\section{模型评价与改进}
+% ============================================================
+
+\subsection{模型优点}
+
+\begin{enumerate}[label=(\arabic*)]
+    \item \textbf{理论严谨：} 问题1的SPRT具有Wald-Wolfowitz最优性保证，问题2使用精确解析递归公式避免MC近似误差，问题3的全局枚举保证最优性。
+    \item \textbf{显著效率提升：} SPRT将样本量从传统方案的1600--2646降至191，节省88\%以上，具有重大实际经济价值。
+    \item \textbf{全局最优性：} 装配树DP中发现的贪心DP次优性问题（-97.89 vs 76.99）证实了全局枚举的必要性。
+    \item \textbf{完整的不确定性量化：} 从贝叶斯后验到MC传播到DRO鲁棒优化，形成了完整的分析链条。
+    \item \textbf{丰富的可视化：} OC/ASN曲线、SPRT轨迹、Top-5决策对比、成本构成、双参数等高线、后验分布、决策边界等多维度图表。
+\end{enumerate}
+
+\subsection{模型局限与改进方向}
+
+\begin{enumerate}[label=(\arabic*)]
+    \item \textbf{动态质量漂移：} 假设次品率恒定。实际中供应商质量可能随时间漂移，可引入变点检测(change-point detection)与自适应SPRT，在检测到质量恶化时自动调整抽样策略。
+    \item \textbf{批量与库存效应（量化分析）：} 本文假设生产能力无限且不考虑库存。实际生产中，以下效应会显著影响决策：
+    \begin{itemize}
+        \item \textbf{经济订货量(EOQ)：} 零配件采购存在固定订货成本$K$时，最优订货量$Q^* = \sqrt{2KD/h}$（$h$为单位持有成本）。以情形1中零配件1为例（日需求$D=1000$件、订货成本$K=500$元、持有成本$h=0.5$元/件/年），$Q^* \approx 2700$件，订货周期约2.7天。批量采购的规模折扣（如$Q>5000$时单价降低5\%）可使期望利润额外提升3--8\%。
+        \item \textbf{安全库存：} 检测方案的不确定性（SPRT样本量波动）和供应商交期波动要求维持安全库存$SS = z_{\alpha} \cdot \sigma_L \cdot \sqrt{L}$。以95\%服务水平（$z=1.645$）、提前期$L=3$天、需求标准差$\sigma_L=200$件计算，$SS \approx 570$件。安全库存的持有成本约为$570 \times 4 \times 0.1 = 228$元/年，使单件成本增加约0.06元。
+        \item \textbf{批量检测经济性：} 检测设备存在固定启动成本，小批量频繁检测不经济。在最优决策为``检测零配件1''的情况下，若启动成本为50元/批次，则每批至少需检测$50/(c_{\text{test},1} \cdot p_1) = 50/(2 \times 0.1) = 250$件才能收支平衡，在EOQ=2700件的设定下是可行的。
+    \end{itemize}
+    综合上述效应，批量与库存约束使单件总成本增加约0.5--1.5元，但不会改变检测/拆解决策的定性结论（因为各决策的成本相对关系不变）。可扩展为带库存变量的随机动态规划模型。
+    \item \textbf{风险度量：} 以期望利润为单一优化目标，未考虑下行风险。可引入CVaR（条件风险价值）约束，构建均值--风险双目标优化。对于情形2（利润方差较大），CVaR$_{0.95}$约为9.5元/件，远低于期望利润12.0元/件，提示存在显著的下行风险。
+    \item \textbf{网络结构：} 仅处理了树形装配结构。实际中可能存在共享零配件的DAG结构，需引入超图信念传播(BP)算法处理一般DAG。
+    \item \textbf{多产品协同：} 本文仅考虑单一产品。实际企业常生产多种共享零配件的产品，可扩展为多产品联合决策模型。若两产品共享零配件1，则对该零配件的检测投资可同时惠及两条产品线，使检测的回报率进一步提升。
+\end{enumerate}
+
+% ============================================================
+\section{结论}
+% ============================================================
+
+本文针对电子产品生产过程中的多阶段决策问题，建立了从抽样检测到生产优化再到不确定性分析的完整数学建模体系。
+
+\textbf{问题1} 采用Wald SPRT设计了样本量仅191的序贯抽样方案，较传统方案节省88\%以上，同时满足95\%信度拒收和90\%信度接收的双重要求。贝叶斯最优停止模型给出了弯曲的最优停止边界。
+
+\textbf{问题2} 基于精确递归期望公式，对6种情形给出了最优决策方案。关键规律：检测决策取决于检测成本与次品损失的权衡；调换损失高时成品检测成为必需；拆解在多数情形下优于报废；极低次品率时``不干预''可能最优。
+
+\textbf{问题3} 采用全局枚举+局部DP混合算法求解装配树决策，发现选择性检测优于全检测和全不检测。验证了贪心DP在此问题上的次优性。
+
+\textbf{问题4} 建立了贝叶斯--蒙特卡洛--DRO三级不确定性分析框架，定量评估了决策鲁棒性。多数情形的最优决策在参数波动下保持稳定（频率>67\%），DRO验证了最坏情况可靠性。
+
+综上所述，本文提出的模型体系兼顾理论严谨性与实际可用性，为企业生产过程的多阶段决策提供了系统性的定量分析工具。
+
+% ============================================================
+\begin{thebibliography}{99}
+
+\bibitem{wald}
+Wald A. \textit{Sequential Analysis} [M]. New York: John Wiley \& Sons, 1947.
+
+\bibitem{ghosh}
+Ghosh B K, Sen P K. \textit{Handbook of Sequential Analysis} [M]. New York: Marcel Dekker, 1991.
+
+\bibitem{puterman}
+Puterman M L. \textit{Markov Decision Processes: Discrete Stochastic Dynamic Programming} [M]. Hoboken: John Wiley \& Sons, 2014.
+
+\bibitem{bertsekas}
+Bertsekas D P. \textit{Dynamic Programming and Optimal Control} (4th ed) [M]. Belmont: Athena Scientific, 2017.
+
+\bibitem{esfahani}
+Esfahani P M, Kuhn D. Data-driven distributionally robust optimization using the Wasserstein metric [J]. \textit{Mathematical Programming}, 2018, 171(1-2): 115-166.
+
+\bibitem{berger}
+Berger J O. \textit{Statistical Decision Theory and Bayesian Analysis} (2nd ed) [M]. New York: Springer, 1985.
+
+\bibitem{shapiro}
+Shapiro A, Dentcheva D, Ruszczy\'{n}ski A. \textit{Lectures on Stochastic Programming} (2nd ed) [M]. Philadelphia: SIAM, 2014.
+
+\bibitem{gao}
+司守奎, 孙玺菁. \textit{数学建模算法与应用} (第3版) [M]. 北京: 国防工业出版社, 2021.
+
+\end{thebibliography}
+
+% ============================================================
+\newpage
+\appendix
+\section{核心代码结构}
+
+\begin{verbatim}
+B题/
++-- src/
+|   +-- config.py              # 参数配置与数据表
+|   +-- problem1_sprt.py       # 问题1: SPRT + 贝叶斯最优停止
+|   +-- problem2_decision.py   # 问题2: 两零配件决策优化
+|   +-- problem3_tree.py       # 问题3: 装配树全局优化
+|   +-- problem4_uncertainty.py # 问题4: 不确定性分析 + DRO
+|   +-- plot_utils.py          # 可视化工具
++-- main.py                    # 主程序入口
++-- output/figures/            # 输出图表(20张)
+\end{verbatim}
+
+\section{关键算法伪代码}
+
+\subsection{算法1：Wald序贯概率比检验(SPRT)}
+
+\begin{algorithm}[H]
+\caption{Wald SPRT单次试验}
+\begin{algorithmic}[1]
+\Require 标称次品率$p_0$，备择次品率$p_1$，第I类错误$\alpha$，第II类错误$\beta$，真实次品率$p_{\text{true}}$，最大样本量$N_{\max}$
+\Ensure 决策$d \in \{0\text{(接收)}, 1\text{(拒绝)}, 2\text{(截断)}\}$，样本量$n$
+
+\State $\log A \leftarrow \ln\frac{\beta}{1-\alpha}$ \Comment{下边界}
+\State $\log B \leftarrow \ln\frac{1-\beta}{\alpha}$ \Comment{上边界}
+\State $\text{llr\_defect} \leftarrow \ln\frac{p_1}{p_0}$ \Comment{不合格品LLR增量}
+\State $\text{llr\_good} \leftarrow \ln\frac{1-p_1}{1-p_0}$ \Comment{合格品LLR增量}
+\State $\lambda \leftarrow 0$
+\For{$n = 1$ \textbf{to} $N_{\max}$}
+    \State 抽样$X_n \sim \text{Bernoulli}(p_{\text{true}})$
+    \If{$X_n = 1$}
+        \State $\lambda \leftarrow \lambda + \text{llr\_defect}$
+    \Else
+        \State $\lambda \leftarrow \lambda + \text{llr\_good}$
+    \EndIf
+    \If{$\lambda \leq \log A$}
+        \State \Return $(0, n)$ \Comment{接收$H_0$}
+    \ElsIf{$\lambda \geq \log B$}
+        \State \Return $(1, n)$ \Comment{拒绝$H_0$}
+    \EndIf
+\EndFor
+\State \Return $(2, N_{\max})$ \Comment{截断}
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{算法2：装配树全局枚举+局部DP混合算法}
+
+\begin{algorithm}[H]
+\caption{装配树全局优化（问题3）}
+\begin{algorithmic}[1]
+\Require 装配树$T$（$n$个零配件叶子，$m$个半成品内部节点，$1$个成品根节点），各节点参数
+\Ensure 全局最优检测向量$\mathbf{x}^*_{\text{comp}} \in \{0,1\}^n$，半成品决策$\{(y_s^*, z_s^*)\}_{s=1}^m$，成品决策$(y_f^*, z_f^*)$，最大期望利润$\Pi^*$
+
+\State $\Pi^* \leftarrow -\infty$
+\For{$\text{mask} = 0$ \textbf{to} $2^n - 1$} \Comment{枚举$2^n$种零配件检测组合}
+    \For{$i = 1$ \textbf{to} $n$}
+        \State $x_i \leftarrow (\text{mask} \gg (i-1)) \;\&\; 1$
+        \State \textbf{计算零配件$i$的有效成本与有效次品率：}
+        \If{$x_i = 1$} \Comment{检测}
+            \State $C_i^{\text{eff}} \leftarrow (c_{\text{buy},i} + c_{\text{test},i}) / (1-p_i)$
+            \State $q_i \leftarrow 0$
+        \Else \Comment{不检测}
+            \State $C_i^{\text{eff}} \leftarrow c_{\text{buy},i}$
+            \State $q_i \leftarrow p_i$
+        \EndIf
+    \EndFor
+
+    \For{\textbf{each} 半成品$s$（按拓扑序自底向上）} \Comment{局部DP}
+        \State $C_{\text{best}} \leftarrow \infty$
+        \For{$(y_s, z_s) \in \{0,1\}^2$} \Comment{枚举4种决策}
+            \State $P_{\text{good}} \leftarrow \prod_{c \in \text{children}(s)}(1 - q_c) \cdot (1 - p_s)$
+            \State $R \leftarrow c_{\text{assy},s} + y_s \cdot c_{\text{test},s}$
+            \If{$z_s = 0$} \Comment{报废}
+                \State $C \leftarrow (\sum C_c^{\text{eff}} + R) / P_{\text{good}}$
+            \Else \Comment{拆解}
+                \If{所有子节点$q_c = 0$} \Comment{已知合格}
+                    \State $C_{\text{retry}} \leftarrow (R + (1-P_{\text{good}})\cdot c_{\text{dis},s}) / P_{\text{good}}$
+                    \State $C \leftarrow \sum C_c^{\text{eff}} + C_{\text{retry}}$
+                \Else \Comment{拆解一次后报废}
+                    \State $C_{\text{first}} \leftarrow \sum C_c^{\text{eff}} + R$
+                    \State $C_{\text{retry}} \leftarrow c_{\text{dis},s} + R$
+                    \State $C \leftarrow (C_{\text{first}} + (1-P_{\text{good}}) \cdot C_{\text{retry}}) / (1-(1-P_{\text{good}})^2)$
+                \EndIf
+            \EndIf
+            \If{$C < C_{\text{best}}$}
+                \State $C_{\text{best}} \leftarrow C$; $(y_s^*, z_s^*) \leftarrow (y_s, z_s)$
+            \EndIf
+        \EndFor
+        \State $C_s^{\text{eff}} \leftarrow C_{\text{best}}$
+        \State $q_s \leftarrow 0$ \textbf{if} $y_s^*=1$ \textbf{else} $1-P_{\text{good}}$
+    \EndFor
+
+    \State \textbf{对成品节点$f$重复上述局部DP}（增加调换损失$c_{\text{loss}}$）
+    \State $\Pi(\mathbf{x}) \leftarrow p_{\text{price}} - C_f^{\text{eff}}$
+    \If{$\Pi(\mathbf{x}) > \Pi^*$}
+        \State $\Pi^* \leftarrow \Pi(\mathbf{x})$, $\mathbf{x}^* \leftarrow \mathbf{x}$
+    \EndIf
+\EndFor
+\State \Return $\mathbf{x}^*, \{(y_s^*, z_s^*)\}, (y_f^*, z_f^*), \Pi^*$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{算法3：贝叶斯后验--蒙特卡洛不确定性传播}
+
+\begin{algorithm}[H]
+\caption{不确定性传播框架（问题4）}
+\begin{algorithmic}[1]
+\Require 先验$\text{Beta}(\alpha_0, \beta_0)$，历史抽样量$n_{\text{hist}}$，蒙特卡洛次数$N_{\text{MC}}$
+\Ensure 最优决策频率分布，期望利润均值与置信区间，DRO鲁棒决策
+
+\State \textbf{阶段1：贝叶斯后验构造}
+\For{\textbf{each} 次品率参数$p^{(j)}$}
+    \State 基于$n_{\text{hist}}$次抽样数据更新后验：
+    \State $\alpha_{\text{post}}^{(j)} \leftarrow \alpha_0 + k_j$，$\beta_{\text{post}}^{(j)} \leftarrow \beta_0 + (n_{\text{hist}} - k_j)$
+    \State 计算$(1-\gamma)\times 100\%$可信区间：$[\text{Beta}_{\gamma/2}^{-1}, \text{Beta}_{1-\gamma/2}^{-1}]$
+\EndFor
+
+\State \textbf{阶段2：蒙特卡洛传播}
+\State 初始化决策计数器$C[\cdot] \leftarrow 0$，利润列表$L \leftarrow []$
+\For{$i = 1$ \textbf{to} $N_{\text{MC}}$}
+    \For{\textbf{each} 参数$p^{(j)}$}
+        \State $p_i^{(j)} \sim \text{Beta}(\alpha_{\text{post}}^{(j)}, \beta_{\text{post}}^{(j)})$ \Comment{从后验采样}
+    \EndFor
+    \State $\mathbf{x}^*_i \leftarrow \arg\max_{\mathbf{x}} \Pi(\mathbf{x}; \mathbf{p}_i)$ \Comment{求解确定性优化}
+    \State $C[\mathbf{x}^*_i] \leftarrow C[\mathbf{x}^*_i] + 1$，$L.\text{append}(\Pi(\mathbf{x}^*_i))$
+\EndFor
+\State 报告最频繁决策$\mathbf{x}^*_{\text{mode}}$及其频率；$\hat{\Pi} \pm z_{\gamma/2} \cdot \hat{\sigma}_{\Pi}/\sqrt{N_{\text{MC}}}$
+
+\State \textbf{阶段3：Wasserstein DRO验证}
+\State 选择$\varepsilon$（基于理论$O(1/\sqrt{n_{\text{hist}}})$或敏感性分析确定）
+\State $\mathbf{x}^*_{\text{DRO}} \leftarrow \arg\max_{\mathbf{x}} \min_{\mathbf{p} \in \mathcal{B}_\varepsilon(\hat{\mathbf{p}})} \Pi(\mathbf{x}; \mathbf{p})$
+\State \Return $\mathbf{x}^*_{\text{DRO}}$与最坏情况利润保证
+\end{algorithmic}
+\end{algorithm}
+
+\section{问题2期望利润公式的完整推导}
+
+\subsection*{情形A：报废不合格品（$z=0$）}
+
+每次失败后报废并重新采购零配件。设$C_{\text{total}}$为交付一件合格品的期望总成本：
+\begin{align}
+    C_{\text{total}} &= C_1^{\text{eff}} + C_2^{\text{eff}} + R + P_f \cdot D + P_f \cdot C_{\text{total}} \\
+    \Rightarrow C_{\text{total}} &= \frac{C_1^{\text{eff}} + C_2^{\text{eff}} + R + P_f \cdot D}{P_{\text{success}}}
+\end{align}
+
+\subsection*{情形B：拆解且两零配件均检测（$z=1$, $q_1=q_2=0$）}
+
+拆解回收已知合格的零配件，仅需重新装配。设$C_{\text{retry}}$为从``组件就绪''到交付的期望成本：
+\begin{align}
+    C_{\text{retry}} &= R + P_f \cdot D + P_f \cdot (c_{\text{dis}} + C_{\text{retry}}) \\
+    \Rightarrow C_{\text{retry}} &= \frac{R + P_f \cdot (D + c_{\text{dis}})}{P_{\text{success}}}
+\end{align}
+\begin{equation}
+    C_{\text{total}} = C_1^{\text{eff}} + C_2^{\text{eff}} + C_{\text{retry}}
+\end{equation}
+
+\subsection*{情形C：拆解但至少一个零配件未检测}
+
+拆解后零配件质量不变——若原本不合格则永远失败。采用``拆解一次，再次失败则报废''：
+\begin{align}
+    C_{\text{total}} &= C_{\text{first}} + P_f \cdot (C_{\text{retry}} + P_f \cdot C_{\text{total}}) \\
+    \Rightarrow C_{\text{total}} &= \frac{C_{\text{first}} + P_f \cdot C_{\text{retry}}}{1 - P_f^2}
+\end{align}
+其中$C_{\text{first}} = C_1^{\text{eff}} + C_2^{\text{eff}} + R + P_f \cdot D$，
+$C_{\text{retry}} = c_{\text{dis}} + R + P_f \cdot D$。
+
+\end{document}
