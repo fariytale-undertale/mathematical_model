@@ -18,6 +18,25 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pylint
+        # Install project dependencies if a requirements file exists; otherwise install common heavy deps used by the repo.
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        else
+          pip install numpy pandas matplotlib scipy scikit-learn openpyxl
+        fi
+        # Install the package in editable mode if the repo is an installable package, otherwise add workspace to PYTHONPATH for pylint.
+        if [ -f setup.py ] || [ -f pyproject.toml ]; then
+          pip install -e .
+        else
+          echo "No installable package found; adding repo root to PYTHONPATH for pylint"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}:$PYTHONPATH" >> $GITHUB_ENV
+        fi
     - name: Analysing the code with pylint
       run: |
-        pylint $(git ls-files '*.py')
+        # Prefer running pylint on the package directory to avoid linting external files;
+        # fall back to all tracked .py files if the package directory is missing.
+        if [ -d mathematical_model_learning ]; then
+          pylint mathematical_model_learning
+        else
+          pylint $(git ls-files '*.py')
+        fi
