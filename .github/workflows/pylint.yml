@@ -1,0 +1,44 @@
+    - name: Install dependencies
+      run: |
+        set -euxo pipefail
+        python -V
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install pylint
+        if [ -f requirements.txt ]; then
+          python -m pip install --no-cache-dir -r requirements.txt
+        else
+          python -m pip install --no-cache-dir numpy pandas matplotlib scipy scikit-learn openpyxl
+        fi
+        if [ -f setup.py ] || [ -f pyproject.toml ]; then
+          python -m pip install -e .
+        else
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}:$PYTHONPATH" >> $GITHUB_ENV
+        fi
+
+    - name: Debug: verify installed packages and imports
+      run: |
+        set -euxo pipefail
+        echo "executable: $(which python)"
+        python -V
+        python -m pip --version
+        python -m pip list --format=columns
+        python - <<'PY'
+import importlib, traceback
+modules = ["numpy","pandas","matplotlib","scipy","sklearn","openpyxl"]
+for m in modules:
+    try:
+        mod = importlib.import_module(m)
+        v = getattr(mod, "__version__", None)
+        print(m, "OK", "version="+str(v))
+    except Exception:
+        print(m, "IMPORT FAIL")
+        traceback.print_exc()
+PY
+
+    - name: Analysing the code with pylint
+      run: |
+        if [ -d mathematical_model_learning ]; then
+          pylint mathematical_model_learning
+        else
+          pylint $(git ls-files '*.py')
+        fi
